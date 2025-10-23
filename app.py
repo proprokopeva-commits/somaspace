@@ -6,7 +6,7 @@ import asyncio
 import os
 
 # 🔹 Вставь сюда свой токен от BotFather
-BOT_TOKEN = "сюда_вставь_свой_токен"
+BOT_TOKEN = "8496128209:AAF5otLctvUyVvepHNo4LI5SdX7h8poHQd0"
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
