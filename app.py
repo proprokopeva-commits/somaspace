@@ -1,60 +1,114 @@
-import asyncio, logging, os
+import os
+import asyncio
+import logging
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
-from aiogram.filters import CommandStart
+from aiogram.types import Message, CallbackQuery, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
+from aiogram.filters import CommandStart, Command
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
 logging.basicConfig(level=logging.INFO)
 
-PRESENTATION_PATH = "files/Somaspace_HR.pdf"
-VIDEO_PATH = "files/masterclass.mp4"
-CHANNEL_URL = "https://t.me/your_somaspace_channel"  # ← замени ссылкой на свой канал
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHANNEL_URL = os.getenv("CHANNEL_URL", "https://t.me/your_channel")
+MASTERCLASS_URL = os.getenv("MASTERCLASS_URL", "https://t.me/your_video")
 
-def main_menu():
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📄 Скачать презентацию", callback_data="presentation")],
-        [InlineKeyboardButton(text="🎥 Посмотреть мастер-класс", callback_data="masterclass")],
-        [InlineKeyboardButton(text="🚀 Перейти в канал", callback_data="channel")]
-    ])
-    return kb
+if not BOT_TOKEN or ":" not in BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN отсутствует или некорректен. Задай Service Variable BOT_TOKEN на Railway.")
 
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
+
+# Память для данных пользователей
+user_data = {}
+
+# Главное меню
+menu_kb = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="📥 Скачать презентацию", callback_data="download_prez")],
+    [InlineKeyboardButton(text="🎥 Посмотреть мастер-класс", url=MASTERCLASS_URL)],
+    [InlineKeyboardButton(text="📣 Перейти в канал", url=CHANNEL_URL)],
+])
+
+async def set_commands():
+    cmds = [
+        BotCommand(command="start", description="Начать"),
+        BotCommand(command="menu", description="Показать меню"),
+    ]
+    await bot.set_my_commands(cmds)
+
+
+# --- Диалог сбора данных ---
 @dp.message(CommandStart())
-async def start(m: Message):
-    await m.answer(
-        "Привет! Я SõmaSpace-бот для HR. За 5 минут — что это и как запустить пилот.\n\nВыберите шаг:",
-        reply_markup=main_menu()
-    )
+async def start_dialog(m: Message):
+    user_data[m.from_user.id] = {}
+    await m.answer("Привет! 👋\n\nЯ помогу тебе познакомиться с SõmaSpace.\n\nДля начала скажи, как тебя зовут?")
+    user_data[m.from_user.id]["step"] = "name"
 
-@dp.callback_query(F.data == "presentation")
-async def send_presentation(c: CallbackQuery):
-    if os.path.exists(PRESENTATION_PATH):
-        await bot.send_document(c.from_user.id, FSInputFile(PRESENTATION_PATH))
-    else:
-        await bot.send_message(c.from_user.id, "Файл презентации пока не загружен.")
+
+@dp.message(F.text)
+async def collect_data(m: Message):
+    uid = m.from_user.id
+    if uid not in user_data:
+        return await m.answer("Напиши /start, чтобы начать заново.")
+
+    step = user_data[uid].get("step")
+
+    if step == "name":
+        user_data[uid]["name"] = m.text.strip()
+        user_data[uid]["step"] = "company"
+        return await m.answer("Отлично, приятно познакомиться, {0}! 😊\n\nИз какой ты компании?".format(m.text.strip()))
+
+    elif step == "company":
+        user_data[uid]["company"] = m.text.strip()
+        user_data[uid]["step"] = "email"
+        return await m.answer("Спасибо! А теперь оставь, пожалуйста, корпоративную почту — чтобы мы могли прислать материалы.")
+
+    elif step == "email":
+        user_data[uid]["email"] = m.text.strip()
+        name = user_data[uid]["name"]
+        company = user_data[uid]["company"]
+        email = user_data[uid]["email"]
+
+        # финальное сообщение
+        text = (
+            f"✨ Спасибо, {name}!\n\n"
+            f"Компания: {company}\n"
+            f"Email: {email}\n\n"
+            f"Теперь можешь выбрать, что хочешь сделать 👇"
+        )
+
+        await m.answer(text, reply_markup=menu_kb)
+        user_data.pop(uid, None)  # очищаем временные данные
+
+
+# --- Обработчик кнопки презентации ---
+@dp.callback_query(F.data == "download_prez")
+async def on_download_prez(c: CallbackQuery):
     await c.answer()
+    path = "files/Somaspace_HR.pdf"
+    try:
+        doc = FSInputFile(path)
+        await bot.send_document(
+            chat_id=c.from_user.id,
+            document=doc,
+            caption="Презентация SõmaSpace для HR 🚀"
+        )
+    except Exception:
+        await bot.send_message(c.from_user.id, "⚠️ Не удалось найти файл презентации. Проверь путь: files/Somaspace_HR.pdf")
 
-@dp.callback_query(F.data == "masterclass")
-async def send_masterclass(c: CallbackQuery):
-    if os.path.exists(VIDEO_PATH):
-        await bot.send_video(c.from_user.id, FSInputFile(VIDEO_PATH),
-                             caption="10 минут: как запустить пилот SõmaSpace без бюрократии.")
-    else:
-        await bot.send_message(c.from_user.id, "Видео пока не загружено.")
-    await c.answer()
 
-@dp.callback_query(F.data == "channel")
-async def go_channel(c: CallbackQuery):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Открыть канал", url=CHANNEL_URL)]
-    ])
-    await c.message.answer("Переходите в наш канал:", reply_markup=kb)
-    await c.answer()
+@dp.message(Command("menu"))
+async def on_menu(m: Message):
+    await m.answer("Выбери действие 👇", reply_markup=menu_kb)
 
-async def main():
-    await dp.start_polling(bot)
+
+async def runner():
+    await set_commands()
+    while True:
+        try:
+            await dp.start_polling(bot)
+        except Exception as e:
+            logging.exception(f"Polling crashed: {e}. Restarting in 5s…")
+            await asyncio.sleep(5)
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
-
+    asyncio.run(runner())
