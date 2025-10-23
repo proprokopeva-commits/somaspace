@@ -1,114 +1,84 @@
-import os
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import Command
+from aiogram.types import FSInputFile, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from pathlib import Path
 import asyncio
-import logging
-from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, CallbackQuery, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
-from aiogram.filters import CommandStart, Command
+import os
 
-logging.basicConfig(level=logging.INFO)
-
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHANNEL_URL = os.getenv("CHANNEL_URL", "https://t.me/your_channel")
-MASTERCLASS_URL = os.getenv("MASTERCLASS_URL", "https://t.me/your_video")
-
-if not BOT_TOKEN or ":" not in BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN отсутствует или некорректен. Задай Service Variable BOT_TOKEN на Railway.")
+# 🔹 Вставь сюда свой токен от BotFather
+BOT_TOKEN = "сюда_вставь_свой_токен"
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Память для данных пользователей
-user_data = {}
-
-# Главное меню
-menu_kb = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text="📥 Скачать презентацию", callback_data="download_prez")],
-    [InlineKeyboardButton(text="🎥 Посмотреть мастер-класс", url=MASTERCLASS_URL)],
-    [InlineKeyboardButton(text="📣 Перейти в канал", url=CHANNEL_URL)],
-])
-
-async def set_commands():
-    cmds = [
-        BotCommand(command="start", description="Начать"),
-        BotCommand(command="menu", description="Показать меню"),
+# === Главное меню ===
+def get_main_menu():
+    buttons = [
+        [KeyboardButton(text="📄 Скачать презентацию")],
+        [KeyboardButton(text="📚 Полезные материалы")],
+        [KeyboardButton(text="💬 Канал для HR и собственников")],
+        [KeyboardButton(text="❓ Анонимный вопрос")],
+        [KeyboardButton(text="🧾 Обновить профиль"), KeyboardButton(text="🗑 Удалить мои данные")]
     ]
-    await bot.set_my_commands(cmds)
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
+# === /start ===
+@dp.message(Command("start"))
+async def start(message: types.Message):
+    text = (
+        "Привет! 👋\n\n"
+        "Это бот **SõmaSpace** — пространства поддержки для сотрудников и HR.\n\n"
+        "Здесь вы можете:\n"
+        "📄 Скачать презентацию\n"
+        "📚 Посмотреть полезные материалы\n"
+        "💬 Перейти в канал для HR и собственников\n\n"
+        "Начнём?"
+    )
+    await message.answer(text, reply_markup=get_main_menu())
 
-# --- Диалог сбора данных ---
-@dp.message(CommandStart())
-async def start_dialog(m: Message):
-    user_data[m.from_user.id] = {}
-    await m.answer("Привет! 👋\n\nЯ помогу тебе познакомиться с SõmaSpace.\n\nДля начала скажи, как тебя зовут?")
-    user_data[m.from_user.id]["step"] = "name"
-
-
-@dp.message(F.text)
-async def collect_data(m: Message):
-    uid = m.from_user.id
-    if uid not in user_data:
-        return await m.answer("Напиши /start, чтобы начать заново.")
-
-    step = user_data[uid].get("step")
-
-    if step == "name":
-        user_data[uid]["name"] = m.text.strip()
-        user_data[uid]["step"] = "company"
-        return await m.answer("Отлично, приятно познакомиться, {0}! 😊\n\nИз какой ты компании?".format(m.text.strip()))
-
-    elif step == "company":
-        user_data[uid]["company"] = m.text.strip()
-        user_data[uid]["step"] = "email"
-        return await m.answer("Спасибо! А теперь оставь, пожалуйста, корпоративную почту — чтобы мы могли прислать материалы.")
-
-    elif step == "email":
-        user_data[uid]["email"] = m.text.strip()
-        name = user_data[uid]["name"]
-        company = user_data[uid]["company"]
-        email = user_data[uid]["email"]
-
-        # финальное сообщение
-        text = (
-            f"✨ Спасибо, {name}!\n\n"
-            f"Компания: {company}\n"
-            f"Email: {email}\n\n"
-            f"Теперь можешь выбрать, что хочешь сделать 👇"
-        )
-
-        await m.answer(text, reply_markup=menu_kb)
-        user_data.pop(uid, None)  # очищаем временные данные
-
-
-# --- Обработчик кнопки презентации ---
-@dp.callback_query(F.data == "download_prez")
-async def on_download_prez(c: CallbackQuery):
-    await c.answer()
-    path = "files/Somaspace_HR.pdf"
+# === Скачать презентацию ===
+@dp.message(lambda m: m.text == "📄 Скачать презентацию")
+async def send_presentation(message: types.Message):
     try:
-        doc = FSInputFile(path)
+        base_path = Path(__file__).parent
+        file_path = base_path / "files" / "somaspace_HR.pdf"
+
+        if not file_path.exists():
+            await message.answer("Файл не найден 😔 Пожалуйста, сообщите нам, чтобы мы исправили это.")
+            return
+
+        await message.answer("Загрузка...")
         await bot.send_document(
-            chat_id=c.from_user.id,
-            document=doc,
-            caption="Презентация SõmaSpace для HR 🚀"
+            chat_id=message.chat.id,
+            document=FSInputFile(file_path),
+            caption="Вот презентация **SõmaSpace** для HR 📄"
         )
-    except Exception:
-        await bot.send_message(c.from_user.id, "⚠️ Не удалось найти файл презентации. Проверь путь: files/Somaspace_HR.pdf")
+    except Exception as e:
+        await message.answer(f"Ошибка при отправке файла: {e}")
 
+# === Полезные материалы ===
+@dp.message(lambda m: m.text == "📚 Полезные материалы")
+async def materials(message: types.Message):
+    text = (
+        "Раздел в разработке 💫\n\n"
+        "Скоро здесь появятся статьи, карточки и видео, "
+        "которые помогут HR и командам заботиться о себе и друг о друге.\n\n"
+        "А пока вы можете перейти в наш канал для HR и собственников 👇"
+    )
+    link_button = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Перейти в канал", url="https://t.me/somaspace_tg")]
+        ]
+    )
+    await message.answer(text, reply_markup=link_button)
 
-@dp.message(Command("menu"))
-async def on_menu(m: Message):
-    await m.answer("Выбери действие 👇", reply_markup=menu_kb)
-
-
-async def runner():
-    await set_commands()
-    while True:
-        try:
-            await dp.start_polling(bot)
-        except Exception as e:
-            logging.exception(f"Polling crashed: {e}. Restarting in 5s…")
-            await asyncio.sleep(5)
-
-
-if __name__ == "__main__":
-    asyncio.run(runner())
+# === Канал для HR и собственников ===
+@dp.message(lambda m: m.text == "💬 Канал для HR и собственников")
+async def go_to_channel(message: types.Message):
+    link_button = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Открыть канал SõmaSpace", url="https://t.me/somaspace_tg")]
+        ]
+    )
+    await message.answer(
+        "Вот ссылка на наш Telegram
