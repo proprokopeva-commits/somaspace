@@ -36,23 +36,22 @@ def get_main_menu():
         [KeyboardButton(text="📄 Скачать презентацию")],
         [KeyboardButton(text="📚 Полезные материалы")],
         [KeyboardButton(text="❓ Анонимный вопрос")],
-        [KeyboardButton(text="🧾 Обновить профиль"), KeyboardButton(text="🗑 Удалить мои данные")],
     ]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
 WELCOME_CAPTION = (
     "Привет! 👋\n\n"
-    "Это **SõmaSpace** — сервис заботы о людях в компаниях.\n"
+    "<b>SõmaSpace</b> — сервис заботы о людях в компаниях.\n"
     "Если вы верите, что здоровая команда начинается с внимания к человеку — вы дома.\n\n"
     "Начните с канала: там истории, практики и примеры внедрения.\n"
     "Или скачайте презентацию — коротко и по делу."
 )
 
 NUDGE_TEXT = (
-    "🎯 3 шага на неделю:\n"
+    "🎯 <b>3 шага на неделю:</b>\n"
     "1️⃣ Подпишитесь на канал.\n"
     "2️⃣ Попробуйте одну практику.\n"
-    "3️⃣ Напишите *Готово* — пришлю подборку для старта."
+    "3️⃣ Напишите <b>Готово</b> — пришлю подборку для старта."
 )
 
 # === FSM для сбора контактов ===
@@ -76,22 +75,22 @@ def save_user_data(user_id, name, company, email):
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
     base_path = Path(__file__).parent
-    image_path = base_path / "files" / "start_image.jpg"  # помести сюда свою картинку
-    
+    image_path = base_path / "files" / "start_image.jpg"
+
     if image_path.exists():
         photo = FSInputFile(image_path)
         await bot.send_photo(
             chat_id=message.chat.id,
             photo=photo,
             caption=WELCOME_CAPTION,
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=get_main_menu()
         )
     else:
-        await message.answer(WELCOME_CAPTION, reply_markup=get_main_menu())
-    
+        await message.answer(WELCOME_CAPTION, parse_mode="HTML", reply_markup=get_main_menu())
+
     await asyncio.sleep(1.2)
-    await message.answer(NUDGE_TEXT)
+    await message.answer(NUDGE_TEXT, parse_mode="HTML")
 
 # === /menu ===
 @dp.message(Command("menu"))
@@ -106,14 +105,14 @@ async def open_channel(message: types.Message):
         "• как поддерживать людей без бюрократии,\n"
         "• как HR не выгорать,\n"
         "• как руководителям держать баланс между результатом и человеческим.\n\n"
-        "Присоединяйтесь 👇"
+        "<b>Присоединяйтесь 👇</b>"
     )
     link_button = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Перейти в канал", url="https://t.me/somaspace_tg")]
+            [InlineKeyboardButton(text="Перейти в канал SõmaSpace", url="https://t.me/somaspace_tg")]
         ]
     )
-    await message.answer(text, reply_markup=link_button)
+    await message.answer(text, parse_mode="HTML", reply_markup=link_button)
 
 # === Скачать презентацию ===
 @dp.message(F.text == "📄 Скачать презентацию")
@@ -128,10 +127,14 @@ async def send_presentation(message: types.Message):
         await bot.send_document(
             chat_id=message.chat.id,
             document=FSInputFile(file_path),
-            caption="Вот презентация **SõmaSpace** для HR 📄"
+            caption="Вот презентация <b>SõmaSpace</b> для HR 📄",
+            parse_mode="HTML",
         )
-        await message.answer("Если откликнулось — напишите *Хочу*. Я пришлю 3 шага для мягкого пилота.")
-    except Exception as e:
+        await message.answer(
+            "Если откликнулось — напишите <b>Хочу</b>. Я пришлю 3 шага для мягкого пилота.",
+            parse_mode="HTML",
+        )
+    except Exception:
         logger.exception("Ошибка при отправке презентации")
         await message.answer("Что-то пошло не так 😔 Попробуйте позже.")
 
@@ -141,41 +144,30 @@ async def materials(message: types.Message):
     text = (
         "Раздел в разработке 💫\n\n"
         "Скоро здесь появятся статьи, карточки и видео для HR и команд.\n"
-        "Пока лучший вход в тему — канал SõmaSpace 👇"
+        "Пока лучший вход в тему — канал <b>SõmaSpace</b> 👇"
     )
     link_button = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Перейти в канал", url="https://t.me/somaspace_tg")]
+            [InlineKeyboardButton(text="Перейти в канал SõmaSpace", url="https://t.me/somaspace_tg")]
         ]
     )
-    await message.answer(text, reply_markup=link_button)
+    await message.answer(text, parse_mode="HTML", reply_markup=link_button)
 
 # === Анонимный вопрос ===
 @dp.message(F.text == "❓ Анонимный вопрос")
 async def ask_question(message: types.Message):
     await message.answer(
-        "Опишите вашу ситуацию (до 500 символов). Мы подскажем первый шаг и тип специалиста."
+        "Опишите вашу ситуацию (до 500 символов). Мы подскажем первый шаг и тип специалиста.",
+        parse_mode="HTML",
     )
 
 @dp.message(F.reply_to_message & F.reply_to_message.text.contains("Опишите вашу ситуацию"))
 async def handle_question(message: types.Message):
-    logger.info("Anon question: %s", (message.text or "")[:1000])
+    logger.info("Anon question: %s", (message.text or '')[:1000])
     await message.answer(
         "Спасибо 🌿 Ответ придёт сюда в течение рабочего дня.\n"
-        "Это не консультация, а навигация по первым шагам."
-    )
-
-# === Обновить профиль ===
-@dp.message(F.text == "🧾 Обновить профиль")
-async def update_profile(message: types.Message):
-    await message.answer("Функция обновления профиля появится позже 🌱")
-
-# === Удалить данные ===
-@dp.message(F.text == "🗑 Удалить мои данные")
-async def delete_data(message: types.Message):
-    await message.answer(
-        "Все ваши данные будут удалены.\n"
-        "Пока эта функция не активна. Напишите нам, если нужно удалить информацию."
+        "Это не консультация, а навигация по первым шагам.",
+        parse_mode="HTML",
     )
 
 # === Хочу / Готово — сбор контактов ===
@@ -183,20 +175,24 @@ async def delete_data(message: types.Message):
 async def start_collect(message: types.Message, state: FSMContext):
     await message.answer(
         "Рада, что откликнулось 🌿\n"
-        "Мы делаем подборки персонально. Как вас зовут?"
+        "Мы делаем подборки персонально. Как вас зовут?",
+        parse_mode="HTML",
     )
     await state.set_state(ContactForm.name)
 
 @dp.message(ContactForm.name)
 async def get_name(message: types.Message, state: FSMContext):
     await state.update_data(name=message.text)
-    await message.answer("Из какой вы компании?")
+    await message.answer("Из какой вы компании?", parse_mode="HTML")
     await state.set_state(ContactForm.company)
 
 @dp.message(ContactForm.company)
 async def get_company(message: types.Message, state: FSMContext):
     await state.update_data(company=message.text)
-    await message.answer("Хотите, пришлю подборку на почту? Напишите email или отправьте «Нет».")
+    await message.answer(
+        "Хотите, пришлю подборку на почту? Напишите email или отправьте «Нет».",
+        parse_mode="HTML",
+    )
     await state.set_state(ContactForm.email)
 
 @dp.message(ContactForm.email)
@@ -207,8 +203,10 @@ async def get_email(message: types.Message, state: FSMContext):
     email = message.text if "@" in message.text else ""
     save_user_data(message.from_user.id, name, company, email)
     await message.answer(
-        "Спасибо 🌱 Контакт сохранён.\n"
-        "В течение дня пришлю материалы для старта. Если пока не подписаны — загляните в канал 👇",
+        "Спасибо 🌱 Контакт сохранён.\n\n"
+        "В течение дня пришлю материалы для старта. "
+        "Если пока не подписаны — загляните в канал 👇",
+        parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text="Канал SõmaSpace", url="https://t.me/somaspace_tg")]]
         ),
@@ -222,7 +220,7 @@ async def main():
         BotCommand(command="start", description="Начать"),
         BotCommand(command="menu", description="Главное меню"),
     ])
-    logger.info("SomaSpace bot started ✅")
+    logger.info("SõmaSpace bot started ✅")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
