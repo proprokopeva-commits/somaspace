@@ -4,21 +4,24 @@ from aiogram.types import (
     FSInputFile, ReplyKeyboardMarkup, KeyboardButton,
     InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 )
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from pathlib import Path
 import asyncio
 import os
+import csv
 import logging
 import sys
 
-# --- Логи в Railway ---
+# --- Логи ---
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    format="%(asctime)s | %(levelname)s | %(message)s",
     stream=sys.stdout,
 )
 logger = logging.getLogger("somaspace-bot")
 
-# --- Токен из окружения ---
+# --- Токен ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set. Add it in Railway → Settings → Variables.")
@@ -29,64 +32,81 @@ dp = Dispatcher()
 # === Главное меню ===
 def get_main_menu():
     buttons = [
+        [KeyboardButton(text="💬 Канал для HR и собственников")],
         [KeyboardButton(text="📄 Скачать презентацию")],
         [KeyboardButton(text="📚 Полезные материалы")],
-        [KeyboardButton(text="💬 Канал для HR и собственников")],
         [KeyboardButton(text="❓ Анонимный вопрос")],
         [KeyboardButton(text="🧾 Обновить профиль"), KeyboardButton(text="🗑 Удалить мои данные")],
     ]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
-WELCOME_TEXT = (
+WELCOME_CAPTION = (
     "Привет! 👋\n\n"
-    "Это бот **SõmaSpace** — пространства поддержки для сотрудников и HR.\n\n"
-    "Здесь вы можете:\n"
-    "• 📄 Скачать презентацию\n"
-    "• 📚 Посмотреть полезные материалы\n"
-    "• 💬 Перейти в канал для HR и собственников\n\n"
-    "Начнём?"
+    "Это **SõmaSpace** — сервис заботы о людях в компаниях.\n"
+    "Если вы верите, что здоровая команда начинается с внимания к человеку — вы дома.\n\n"
+    "Начните с канала: там истории, практики и примеры внедрения.\n"
+    "Или скачайте презентацию — коротко и по делу."
 )
 
-# === /start и /menu ===
+NUDGE_TEXT = (
+    "🎯 3 шага на неделю:\n"
+    "1️⃣ Подпишитесь на канал.\n"
+    "2️⃣ Попробуйте одну практику.\n"
+    "3️⃣ Напишите *Готово* — пришлю подборку для старта."
+)
+
+# === FSM для сбора контактов ===
+class ContactForm(StatesGroup):
+    name = State()
+    company = State()
+    email = State()
+
+def save_user_data(user_id, name, company, email):
+    os.makedirs("data", exist_ok=True)
+    file_path = "data/users.csv"
+    file_exists = os.path.isfile(file_path)
+    with open(file_path, "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(["user_id", "name", "company", "email"])
+        writer.writerow([user_id, name, company, email])
+    logger.info("Saved contact: %s, %s, %s", name, company, email)
+
+# === /start ===
 @dp.message(Command("start"))
-@dp.message(Command("menu"))
-async def cmd_start(message: types.Message):
-    await message.answer(WELCOME_TEXT, reply_markup=get_main_menu())
-
-# === «подстраховка»: если пользователь напишет просто "start" ===
-@dp.message(F.text.regexp(r"^\s*start\s*$", flags=0))
-async def txt_start(message: types.Message):
-    await message.answer(WELCOME_TEXT, reply_markup=get_main_menu())
-
-# === Скачать презентацию ===
-@dp.message(F.text == "📄 Скачать презентацию")
-async def send_presentation(message: types.Message):
-    try:
-        base_path = Path(__file__).parent
-        file_path = base_path / "files" / "somaspace_HR.pdf"
-
-        if not file_path.exists():
-            logger.error("PDF not found at %s", file_path)
-            await message.answer("Файл не найден 😔 Сообщите нам, пожалуйста. Мы починим.")
-            return
-
-        await message.answer("Загрузка…")
-        await bot.send_document(
+async def start_cmd(message: types.Message):
+    base_path = Path(__file__).parent
+    image_path = base_path / "files" / "start_image.jpg"  # помести сюда свою картинку
+    
+    if image_path.exists():
+        photo = FSInputFile(image_path)
+        await bot.send_photo(
             chat_id=message.chat.id,
-            document=FSInputFile(file_path),
-            caption="Вот презентация **SõmaSpace** для HR 📄"
+            photo=photo,
+            caption=WELCOME_CAPTION,
+            parse_mode="Markdown",
+            reply_markup=get_main_menu()
         )
-    except Exception:
-        logger.exception("Failed to send presentation")
-        await message.answer("Ошибка при отправке файла. Мы уже смотрим, извините 🙏")
+    else:
+        await message.answer(WELCOME_CAPTION, reply_markup=get_main_menu())
+    
+    await asyncio.sleep(1.2)
+    await message.answer(NUDGE_TEXT)
 
-# === Полезные материалы ===
-@dp.message(F.text == "📚 Полезные материалы")
-async def materials(message: types.Message):
+# === /menu ===
+@dp.message(Command("menu"))
+async def menu_cmd(message: types.Message):
+    await message.answer("Главное меню 👇", reply_markup=get_main_menu())
+
+# === Канал ===
+@dp.message(F.text == "💬 Канал для HR и собственников")
+async def open_channel(message: types.Message):
     text = (
-        "Раздел в разработке 💫\n\n"
-        "Скоро здесь появятся статьи, карточки и видео, которые помогут HR и командам.\n\n"
-        "А пока вы можете перейти в наш канал для HR и собственников 👇"
+        "В канале — коротко и по делу:\n"
+        "• как поддерживать людей без бюрократии,\n"
+        "• как HR не выгорать,\n"
+        "• как руководителям держать баланс между результатом и человеческим.\n\n"
+        "Присоединяйтесь 👇"
     )
     link_button = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -95,63 +115,114 @@ async def materials(message: types.Message):
     )
     await message.answer(text, reply_markup=link_button)
 
-# === Канал для HR и собственников ===
-@dp.message(F.text == "💬 Канал для HR и собственников")
-async def go_to_channel(message: types.Message):
+# === Скачать презентацию ===
+@dp.message(F.text == "📄 Скачать презентацию")
+async def send_presentation(message: types.Message):
+    try:
+        base_path = Path(__file__).parent
+        file_path = base_path / "files" / "somaspace_HR.pdf"
+        if not file_path.exists():
+            await message.answer("Файл не найден 😔 Сообщите нам, пожалуйста.")
+            return
+        await message.answer("Загрузка…")
+        await bot.send_document(
+            chat_id=message.chat.id,
+            document=FSInputFile(file_path),
+            caption="Вот презентация **SõmaSpace** для HR 📄"
+        )
+        await message.answer("Если откликнулось — напишите *Хочу*. Я пришлю 3 шага для мягкого пилота.")
+    except Exception as e:
+        logger.exception("Ошибка при отправке презентации")
+        await message.answer("Что-то пошло не так 😔 Попробуйте позже.")
+
+# === Полезные материалы ===
+@dp.message(F.text == "📚 Полезные материалы")
+async def materials(message: types.Message):
+    text = (
+        "Раздел в разработке 💫\n\n"
+        "Скоро здесь появятся статьи, карточки и видео для HR и команд.\n"
+        "Пока лучший вход в тему — канал SõmaSpace 👇"
+    )
     link_button = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Открыть канал SõmaSpace", url="https://t.me/somaspace_tg")]
+            [InlineKeyboardButton(text="Перейти в канал", url="https://t.me/somaspace_tg")]
         ]
     )
-    await message.answer("Вот ссылка на наш Telegram-канал 👇", reply_markup=link_button)
+    await message.answer(text, reply_markup=link_button)
 
 # === Анонимный вопрос ===
 @dp.message(F.text == "❓ Анонимный вопрос")
 async def ask_question(message: types.Message):
     await message.answer(
-        "Опишите вашу ситуацию (до 500 символов). Мы пришлём рекомендацию и подскажем, к какому специалисту обратиться."
+        "Опишите вашу ситуацию (до 500 символов). Мы подскажем первый шаг и тип специалиста."
     )
 
-# Ответ на анонимный вопрос (упрощённо)
 @dp.message(F.reply_to_message & F.reply_to_message.text.contains("Опишите вашу ситуацию"))
 async def handle_question(message: types.Message):
-    logger.info("Anon question from %s: %s", message.from_user.id, (message.text or "")[:1000])
+    logger.info("Anon question: %s", (message.text or "")[:1000])
     await message.answer(
-        "Спасибо за ваш вопрос 🌿\n"
-        "Ответ придёт сюда в течение рабочего дня.\n"
+        "Спасибо 🌿 Ответ придёт сюда в течение рабочего дня.\n"
         "Это не консультация, а навигация по первым шагам."
     )
 
-# === Обновить профиль (заглушка) ===
+# === Обновить профиль ===
 @dp.message(F.text == "🧾 Обновить профиль")
 async def update_profile(message: types.Message):
     await message.answer("Функция обновления профиля появится позже 🌱")
 
-# === Удалить данные (заглушка) ===
+# === Удалить данные ===
 @dp.message(F.text == "🗑 Удалить мои данные")
 async def delete_data(message: types.Message):
     await message.answer(
-        "Все ваши данные будут удалены.\n\n"
+        "Все ваши данные будут удалены.\n"
         "Пока эта функция не активна. Напишите нам, если нужно удалить информацию."
     )
 
-# === Fallback: неизвестная команда — покажем меню ===
-@dp.message(F.text.startswith("/"))
-async def unknown_command(message: types.Message):
-    await message.answer("Команда не найдена. Открою меню 👇", reply_markup=get_main_menu())
+# === Хочу / Готово — сбор контактов ===
+@dp.message(F.text.regexp("^(Хочу|Готово)$"))
+async def start_collect(message: types.Message, state: FSMContext):
+    await message.answer(
+        "Рада, что откликнулось 🌿\n"
+        "Мы делаем подборки персонально. Как вас зовут?"
+    )
+    await state.set_state(ContactForm.name)
+
+@dp.message(ContactForm.name)
+async def get_name(message: types.Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    await message.answer("Из какой вы компании?")
+    await state.set_state(ContactForm.company)
+
+@dp.message(ContactForm.company)
+async def get_company(message: types.Message, state: FSMContext):
+    await state.update_data(company=message.text)
+    await message.answer("Хотите, пришлю подборку на почту? Напишите email или отправьте «Нет».")
+    await state.set_state(ContactForm.email)
+
+@dp.message(ContactForm.email)
+async def get_email(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    name = data.get("name")
+    company = data.get("company")
+    email = message.text if "@" in message.text else ""
+    save_user_data(message.from_user.id, name, company, email)
+    await message.answer(
+        "Спасибо 🌱 Контакт сохранён.\n"
+        "В течение дня пришлю материалы для старта. Если пока не подписаны — загляните в канал 👇",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="Канал SõmaSpace", url="https://t.me/somaspace_tg")]]
+        ),
+    )
+    await state.clear()
 
 # === Запуск ===
 async def main():
-    # 1) Сброс вебхука — критично, иначе /start может «молчать»
     await bot.delete_webhook(drop_pending_updates=True)
-
-    # 2) Зарегистрируем команды в клиенте
     await bot.set_my_commands([
         BotCommand(command="start", description="Начать"),
         BotCommand(command="menu", description="Главное меню"),
     ])
-
-    logger.info("Starting SomaSpace bot…")
+    logger.info("SomaSpace bot started ✅")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
